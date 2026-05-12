@@ -1,29 +1,60 @@
 # news-report-tools
 
-Scripts para enriquecimento de relatórios HTML de monitoramento de notícias (Factiva / Quarto).
+Ferramentas para enriquecer relatórios HTML de monitoramento de notícias (Factiva / Quarto) com links diretos aos artigos.
+
+---
 
 ## add_search_links.py
 
-Injeta links de acesso direto em relatórios HTML com snippets no formato Factiva.
+Para cada notícia no formato `<b>Título - Veículo</b>`, injeta dois botões:
 
-Para cada notícia (`<b>Título - Veículo</b>`), adiciona dois botões:
+| Botão | Cor | O que faz |
+|---|---|---|
+| 🔗 Acessar | Azul | Link direto ao artigo original (resolvido via DuckDuckGo) |
+| 🔍 Buscar | Amarelo | Fallback — busca site-específica no Google quando o link direto não é encontrado |
+| 🌐 Alternativa | Cinza | Busca Google excluindo o veículo original — outras fontes cobrindo o mesmo fato |
 
-- **🔗 Acessar** — vai direto ao artigo no veículo original via Google ("Estou com sorte" + `site:dominio.com`)
-- **🌐 Alternativa** — abre resultados do Google excluindo o domínio original, para encontrar cobertura aberta do mesmo fato
-
-### Uso
+### Instalação
 
 ```bash
-python3 add_search_links.py relatorio.html
-python3 add_search_links.py relatorio.html --output relatorio-links.html
+pip install ddgs
 ```
 
-O arquivo de saída é o HTML original com os botões injetados ao lado de cada headline. Sem dependências externas — só biblioteca padrão do Python 3.
+### Uso como script
 
-### Adicionar novos veículos
+```bash
+# arquivo único
+python3 add_search_links.py relatorio.html
 
-No dicionário `SOURCE_DOMAINS` dentro do script:
+# múltiplos arquivos com pasta de saída
+python3 add_search_links.py rel1.html rel2.html --output-dir ./processados/
+```
+
+### Uso como módulo em pipelines
 
 ```python
-"nome do veículo": "dominio.com.br",
+from pathlib import Path
+from add_search_links import process_html, resolve_url, SOURCE_DOMAINS
+
+# processar um HTML
+html = Path("relatorio.html").read_text(encoding="utf-8")
+modified, direct, fallback = process_html(html)
+# modified  → HTML com botões injetados
+# direct    → quantidade de links diretos resolvidos
+# fallback  → quantidade que caiu na busca Google
+
+# resolver URL de um artigo individualmente
+url = resolve_url("Título do artigo", "Nome do Veículo", domain="dominio.com.br")
+
+# adicionar veículos ao mapeamento
+SOURCE_DOMAINS["novo veículo"] = "novodominio.com.br"
 ```
+
+---
+
+## Página web (preview rápido)
+
+[joaogcml.github.io/news-report-tools](https://joaogcml.github.io/news-report-tools)
+
+Versão simplificada no browser — gera os botões com buscas Google (sem resolução de URL direta).
+Útil para demonstração ou uso ocasional sem Python.
