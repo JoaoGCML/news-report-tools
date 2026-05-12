@@ -34,7 +34,8 @@
     transition: background .3s, color .3s;
   }
   #status-bar.online  { background: #e6f4ea; color: #1e7e34; }
-  #status-bar.offline { background: #fff3cd; color: #856404; }
+  #status-bar.offline { background: #fff3cd; color: #856404; cursor: pointer; }
+  #status-bar.offline:hover { background: #ffeaa0; }
   #status-bar.checking { background: #e8eaed; color: #555; }
   .dot {
     width: 8px; height: 8px;
@@ -130,6 +131,56 @@
     font-size: 0.85rem;
     color: #d93025;
   }
+
+  /* server instructions panel */
+  #server-panel {
+    display: none;
+    width: 100%;
+    max-width: 560px;
+    background: #fffdf0;
+    border: 1px solid #f0c040;
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 20px;
+    font-size: 0.88rem;
+    color: #555;
+  }
+  #server-panel strong { color: #333; display: block; margin-bottom: 10px; }
+  .cmd-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .cmd-row code {
+    flex: 1;
+    background: #f5f5f5;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 0.83rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .copy-btn {
+    padding: 5px 10px;
+    background: #1a73e8;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .copy-btn:hover { background: #1558b0; }
+  .copy-btn.ok { background: #1e7e34; }
+  #server-panel .tip {
+    margin-top: 10px;
+    font-size: 0.8rem;
+    color: #888;
+  }
 </style>
 </head>
 <body>
@@ -137,9 +188,32 @@
 <h1>News Report — Injetor de Links</h1>
 <p class="sub">Carregue relatórios HTML para adicionar links de acesso direto às notícias.</p>
 
-<div id="status-bar" class="checking">
+<div id="status-bar" class="checking" onclick="togglePanel()">
   <div class="dot"></div>
   <span id="status-text">Verificando servidor local…</span>
+</div>
+
+<!-- painel de instruções — aparece quando servidor está offline -->
+<div id="server-panel">
+  <strong>▶ Como ativar links diretos</strong>
+
+  <p style="margin-bottom:10px;">
+    Clone o repositório uma vez e depois clique duas vezes em
+    <code>start-server.command</code> no Finder — ou rode os comandos abaixo no Terminal:
+  </p>
+
+  <div class="cmd-row">
+    <code id="cmd1">cd ~/Documents/news-report-tools</code>
+    <button class="copy-btn" onclick="copyCmd('cmd1', this)">Copiar</button>
+  </div>
+  <div class="cmd-row">
+    <code id="cmd2">python3 server.py</code>
+    <button class="copy-btn" onclick="copyCmd('cmd2', this)">Copiar</button>
+  </div>
+
+  <p class="tip">
+    Mantenha o Terminal aberto. A página detecta o servidor automaticamente.
+  </p>
 </div>
 
 <div id="dropzone">
@@ -211,14 +285,32 @@ async function checkServer() {
   }
   if (serverOnline) {
     setStatus("online", "Servidor local ativo — links diretos habilitados");
+    document.getElementById("server-panel").style.display = "none";
   } else {
-    setStatus("offline", "Servidor offline — usando busca Google (rode server.py para links diretos)");
+    setStatus("offline", "⚠ Servidor offline — clique para ver como ativar links diretos");
   }
 }
 
 // verifica ao carregar e a cada 15s
 checkServer();
 setInterval(checkServer, 15000);
+
+// --- server panel (instructions when offline) ---
+
+function togglePanel() {
+  if (serverOnline) return;
+  const panel = document.getElementById("server-panel");
+  panel.style.display = panel.style.display === "block" ? "none" : "block";
+}
+
+function copyCmd(id, btn) {
+  const text = document.getElementById(id).textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = "✓";
+    btn.classList.add("ok");
+    setTimeout(() => { btn.textContent = "Copiar"; btn.classList.remove("ok"); }, 1500);
+  });
+}
 
 // --- URL helpers ---
 
