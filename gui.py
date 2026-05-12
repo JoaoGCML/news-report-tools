@@ -49,6 +49,10 @@ class App(TkinterDnD.Tk if HAS_DND else tk.Tk):
 
         self._build_ui()
         self._center()
+        self.lift()
+        self.attributes("-topmost", True)
+        self.after(200, lambda: self.attributes("-topmost", False))
+        self.focus_force()
 
     # ── layout ─────────────────────────────────────────────────────────────
 
