@@ -139,9 +139,6 @@ const STYLE_ALT = [
   "vertical-align:middle","line-height:1.6"
 ].join(";");
 
-function luckyUrl(query) {
-  return `https://www.google.com/search?q=${encodeURIComponent(query)}&btnI=1`;
-}
 function searchUrl(query) {
   return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
 }
@@ -151,10 +148,11 @@ function buildButtons(title, source) {
   const key = source.toLowerCase().trim();
   const domain = SOURCE_DOMAINS[key];
 
+  // site-specific quando domínio conhecido; geral caso contrário
   const primaryQuery = domain ? `"${short}" site:${domain}` : `"${short}" ${source}`;
   const altQuery     = domain ? `"${short}" -${domain}` : `"${short}"`;
 
-  const btn1 = `<a href="${luckyUrl(primaryQuery)}" target="_blank" rel="noopener" style="${STYLE_PRIMARY}">🔗 Acessar</a>`;
+  const btn1 = `<a href="${searchUrl(primaryQuery)}" target="_blank" rel="noopener" style="${STYLE_PRIMARY}">🔗 Acessar</a>`;
   const btn2 = `<a href="${searchUrl(altQuery)}" target="_blank" rel="noopener" style="${STYLE_ALT}">🌐 Alternativa</a>`;
   return `&nbsp;${btn1}&nbsp;${btn2}`;
 }
