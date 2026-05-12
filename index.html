@@ -153,7 +153,8 @@ function buildButtons(title, source) {
   const short  = title.slice(0, 80).trimEnd();
   const domain = SOURCE_DOMAINS[source.toLowerCase().trim()];
   const q1 = domain ? `"${short}" site:${domain}` : `"${short}" ${source}`;
-  const q2 = domain ? `"${short}" -${domain}` : `"${short}"`;
+  // Alternativa: sem aspas, sem exclusão — busca ampla pelo mesmo fato
+  const q2 = title.slice(0, 80).trimEnd();
   return `&nbsp;<a href="${searchUrl(q1)}" target="_blank" rel="noopener" style="${STYLE_PRIMARY}">🔗 Acessar</a>`
        + `&nbsp;<a href="${searchUrl(q2)}" target="_blank" rel="noopener" style="${STYLE_ALT}">🌐 Alternativa</a>`;
 }

@@ -183,7 +183,9 @@ def _build_buttons(title: str, source: str) -> str:
         fallback_q = f'"{short}" site:{domain}' if domain else f'"{short}" {source}'
         btn1 = f'<a href="{_google(fallback_q)}" target="_blank" rel="noopener" style="{_STYLE_FALLBACK}" title="URL direta não encontrada — abre busca">🔍 Buscar</a>'
 
-    alt_q = f'"{title[:120].rstrip()}" -{domain}' if domain else f'"{title[:120].rstrip()}"'
+    # Alternativa: sem aspas e sem exclusão — busca ampla pelo mesmo fato,
+    # inclui o veículo original para garantir resultados
+    alt_q = title[:80].rstrip()
     btn2 = f'<a href="{_google(alt_q)}" target="_blank" rel="noopener" style="{_STYLE_ALT}">🌐 Alternativa</a>'
 
     return f'&nbsp;{btn1}&nbsp;{btn2}'
