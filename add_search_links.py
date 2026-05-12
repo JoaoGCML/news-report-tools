@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
 add_search_links.py
-Injeta um link direto ("Estou com sorte") em relatórios HTML de monitoramento de notícias.
+Resolve URLs reais dos artigos via DuckDuckGo e injeta links diretos em relatórios
+HTML de monitoramento de notícias (Factiva / Quarto).
 
-Quando o veículo é reconhecido, usa site:dominio.com para ir direto ao artigo.
-Quando não é reconhecido, busca título + nome do veículo e vai ao primeiro resultado.
+Requer: pip install ddgs
 
 Uso:
     python3 add_search_links.py BRA-2026-05-08.html
@@ -13,9 +13,17 @@ Uso:
 
 import sys
 import re
+import time
 import argparse
 from pathlib import Path
 from urllib.parse import quote_plus
+
+try:
+    from ddgs import DDGS
+    HAS_DDGS = True
+except ImportError:
+    HAS_DDGS = False
+    print("Aviso: instale ddgs para links diretos (pip install ddgs)", file=sys.stderr)
 
 # Mapeamento de nomes de veículos → domínios para busca site-specific
 SOURCE_DOMAINS = {
@@ -59,87 +67,112 @@ STYLE_ALT = (
     "vertical-align:middle;line-height:1.6;"
 )
 
-
-def lucky_url(query: str) -> str:
-    """Redireciona direto para o primeiro resultado do Google."""
-    return f"https://www.google.com/search?q={quote_plus(query)}&btnI=1"
+STYLE_FALLBACK = (
+    "display:inline-block;margin-left:8px;padding:2px 8px;"
+    "background:#f0a500;color:#fff;font-size:11px;font-weight:600;"
+    "border-radius:4px;text-decoration:none;font-family:sans-serif;"
+    "vertical-align:middle;line-height:1.6;"
+)
 
 
 def search_url(query: str) -> str:
-    """Abre a página de resultados do Google."""
     return f"https://www.google.com/search?q={quote_plus(query)}"
 
 
-def build_link(title: str, source: str) -> str:
-    """
-    Retorna dois botões:
-      🔗 Acessar    — vai direto ao artigo original (I'm feeling lucky + site:)
-      🌐 Alternativa — busca resultados em outras fontes (exclui domínio original)
-    """
-    short_title = title[:80].rstrip()
-    source_key = source.lower().strip()
-    domain = SOURCE_DOMAINS.get(source_key)
+def resolve_url(title: str, source: str, domain: str | None) -> str | None:
+    """Busca a URL real do artigo via DuckDuckGo. Retorna None se não encontrar."""
+    if not HAS_DDGS:
+        return None
+    query = f'"{title}" site:{domain}' if domain else f'"{title}" {source}'
+    try:
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=1))
+        if results:
+            return results[0]["href"]
+    except Exception:
+        pass
+    return None
 
-    # --- botão 1: artigo original ---
-    if domain:
-        primary_query = f'"{short_title}" site:{domain}'
-    else:
-        primary_query = f'"{short_title}" {source}'
-    btn1 = (
-        f'<a href="{lucky_url(primary_query)}" target="_blank" '
-        f'rel="noopener" style="{STYLE_PRIMARY}">🔗 Acessar</a>'
-    )
 
-    # --- botão 2: alternativa aberta ---
-    if domain:
-        # exclui o veículo original para mostrar cobertura de outras fontes
-        alt_query = f'"{short_title}" -{domain}'
+def build_buttons(title: str, source: str) -> str:
+    short = title[:80].rstrip()
+    domain = SOURCE_DOMAINS.get(source.lower().strip())
+
+    # --- botão 1: URL real resolvida (ou fallback para busca) ---
+    direct = resolve_url(short, source, domain)
+    time.sleep(0.4)  # cadência para não ser bloqueado pelo DDG
+
+    if direct:
+        btn1 = (
+            f'<a href="{direct}" target="_blank" '
+            f'rel="noopener" style="{STYLE_PRIMARY}">🔗 Acessar</a>'
+        )
     else:
-        # sem domínio conhecido: busca ampla pelo título
-        alt_query = f'"{short_title}"'
+        # fallback: busca site-specific sem btnI (mais honesto que I'm feeling lucky)
+        fallback_q = f'"{short}" site:{domain}' if domain else f'"{short}" {source}'
+        btn1 = (
+            f'<a href="{search_url(fallback_q)}" target="_blank" '
+            f'rel="noopener" style="{STYLE_FALLBACK}" title="Link direto não encontrado — abre busca">🔍 Buscar</a>'
+        )
+
+    # --- botão 2: alternativa em outras fontes ---
+    alt_q = f'"{short}" -{domain}' if domain else f'"{short}"'
     btn2 = (
-        f'<a href="{search_url(alt_query)}" target="_blank" '
+        f'<a href="{search_url(alt_q)}" target="_blank" '
         f'rel="noopener" style="{STYLE_ALT}">🌐 Alternativa</a>'
     )
 
     return f'&nbsp;{btn1}&nbsp;{btn2}'
 
 
-def process_html(html: str) -> str:
-    """Encontra padrões <b>Título - Veículo</b> e injeta o link direto."""
+def process_html(html: str) -> tuple[str, int, int]:
+    direct_count = 0
+    fallback_count = 0
 
     def replace_bold(match: re.Match) -> str:
+        nonlocal direct_count, fallback_count
         inner = match.group(1)
-        sep_idx = inner.rfind(" - ")
-        if sep_idx == -1:
+        sep = inner.rfind(" - ")
+        if sep == -1:
             return match.group(0)
-        title = inner[:sep_idx].strip()
-        source = inner[sep_idx + 3:].strip()
-        return f"<b>{inner}</b>{build_link(title, source)}"
+        title = inner[:sep].strip()
+        source = inner[sep + 3:].strip()
+        buttons = build_buttons(title, source)
+        if "🔗 Acessar" in buttons:
+            direct_count += 1
+        else:
+            fallback_count += 1
+        return f"<b>{inner}</b>{buttons}"
 
     pattern = re.compile(r"<b>([^<]+)</b>", re.IGNORECASE)
-    return pattern.sub(replace_bold, html)
+    result = pattern.sub(replace_bold, html)
+    return result, direct_count, fallback_count
 
 
 def main():
     parser = argparse.ArgumentParser(description="Injeta links diretos em relatório HTML de notícias")
-    parser.add_argument("input", help="Arquivo HTML de entrada")
-    parser.add_argument("--output", "-o", help="Arquivo HTML de saída (padrão: input com sufixo -links)")
+    parser.add_argument("input", nargs="+", help="Arquivo(s) HTML de entrada")
+    parser.add_argument("--output-dir", "-d", help="Pasta de saída (padrão: mesma pasta do arquivo de entrada)")
     args = parser.parse_args()
 
-    input_path = Path(args.input)
-    if not input_path.exists():
-        print(f"Erro: arquivo '{input_path}' não encontrado.", file=sys.stderr)
-        sys.exit(1)
+    for input_arg in args.input:
+        input_path = Path(input_arg)
+        if not input_path.exists():
+            print(f"Erro: '{input_path}' não encontrado.", file=sys.stderr)
+            continue
 
-    output_path = Path(args.output) if args.output else input_path.with_stem(input_path.stem + "-links")
+        if args.output_dir:
+            out_dir = Path(args.output_dir)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            output_path = out_dir / (input_path.stem + "-links.html")
+        else:
+            output_path = input_path.with_stem(input_path.stem + "-links")
 
-    html = input_path.read_text(encoding="utf-8")
-    modified = process_html(html)
-    output_path.write_text(modified, encoding="utf-8")
-
-    n = modified.count("🌐 Alternativa")
-    print(f"✓ {n} links diretos inseridos → {output_path}")
+        print(f"Processando {input_path.name}…")
+        html = input_path.read_text(encoding="utf-8")
+        modified, direct, fallback = process_html(html)
+        output_path.write_text(modified, encoding="utf-8")
+        print(f"  ✓ {direct} links diretos  |  {fallback} buscas fallback  →  {output_path}")
 
 
 if __name__ == "__main__":
