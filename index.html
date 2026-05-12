@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>News Report — Injetor de Links</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #f5f6f8;
+    color: #1a1a2e;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 48px 16px;
+  }
+
+  h1 { font-size: 1.4rem; font-weight: 700; margin-bottom: 6px; }
+  p.sub { color: #555; font-size: 0.9rem; margin-bottom: 32px; }
+
+  #dropzone {
+    width: 100%;
+    max-width: 560px;
+    border: 2px dashed #aab;
+    border-radius: 12px;
+    padding: 48px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .2s, background .2s;
+    background: #fff;
+  }
+  #dropzone.over { border-color: #1a73e8; background: #e8f0fe; }
+  #dropzone svg { margin-bottom: 12px; opacity: .4; }
+  #dropzone p { color: #555; font-size: 0.95rem; }
+  #dropzone span { color: #1a73e8; font-weight: 600; cursor: pointer; }
+  #fileInput { display: none; }
+
+  #results {
+    width: 100%;
+    max-width: 560px;
+    margin-top: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .file-card {
+    background: #fff;
+    border-radius: 10px;
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.08);
+  }
+  .file-card .name { flex: 1; font-size: 0.9rem; font-weight: 500; word-break: break-all; }
+  .file-card .count { font-size: 0.8rem; color: #555; white-space: nowrap; }
+  .file-card .dl {
+    padding: 6px 14px;
+    background: #1a73e8;
+    color: #fff;
+    border-radius: 6px;
+    text-decoration: none;
+    font-size: 0.85rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .file-card .dl:hover { background: #1558b0; }
+
+  .error-card {
+    background: #fff3f3;
+    border-left: 4px solid #d93025;
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 0.85rem;
+    color: #d93025;
+  }
+</style>
+</head>
+<body>
+
+<h1>News Report — Injetor de Links</h1>
+<p class="sub">Carregue um ou vários relatórios HTML para adicionar links de acesso direto às notícias.</p>
+
+<div id="dropzone">
+  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" stroke-width="1.5">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+    <polyline points="17 8 12 3 7 8"/>
+    <line x1="12" y1="3" x2="12" y2="15"/>
+  </svg>
+  <p>Arraste arquivos HTML aqui<br>ou <span id="browseBtn">clique para selecionar</span></p>
+  <input type="file" id="fileInput" accept=".html,.htm" multiple>
+</div>
+
+<div id="results"></div>
+
+<script>
+const SOURCE_DOMAINS = {
+  "folha de são paulo": "folha.uol.com.br",
+  "folha de s.paulo": "folha.uol.com.br",
+  "folha de pernambuco": "folhape.com.br",
+  "gazeta do povo": "gazetadopovo.com.br",
+  "veja": "veja.abril.com.br",
+  "estado de minas": "em.com.br",
+  "correio braziliense": "correiobraziliense.com.br",
+  "o globo": "oglobo.globo.com",
+  "jc online": "jconline.ne10.uol.com.br",
+  "jornal grande bahia": "jornalgrandebahia.com.br",
+  "consultor juridico": "conjur.com.br",
+  "el país": "elpais.com",
+  "el pais": "elpais.com",
+  "monitor mercantil": "monitormercantil.com.br",
+  "correio do brasil": "correiodobrasil.com.br",
+  "infobae": "infobae.com",
+  "el nacional": "el-nacional.com",
+  "extra online": "extra.globo.com",
+  "la prensa": "laprensa.com",
+  "milenio": "milenio.com",
+  "observador": "observador.pt",
+  "ibahia": "ibahia.com",
+  "o dia": "odia.com.br",
+  "agence france presse": "afpforum.com",
+};
+
+const STYLE_PRIMARY = [
+  "display:inline-block","margin-left:8px","padding:2px 8px",
+  "background:#1a73e8","color:#fff","font-size:11px","font-weight:600",
+  "border-radius:4px","text-decoration:none","font-family:sans-serif",
+  "vertical-align:middle","line-height:1.6"
+].join(";");
+
+const STYLE_ALT = [
+  "display:inline-block","margin-left:4px","padding:2px 8px",
+  "background:#6c757d","color:#fff","font-size:11px","font-weight:600",
+  "border-radius:4px","text-decoration:none","font-family:sans-serif",
+  "vertical-align:middle","line-height:1.6"
+].join(";");
+
+function luckyUrl(query) {
+  return `https://www.google.com/search?q=${encodeURIComponent(query)}&btnI=1`;
+}
+function searchUrl(query) {
+  return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+}
+
+function buildButtons(title, source) {
+  const short = title.slice(0, 80).trimEnd();
+  const key = source.toLowerCase().trim();
+  const domain = SOURCE_DOMAINS[key];
+
+  const primaryQuery = domain ? `"${short}" site:${domain}` : `"${short}" ${source}`;
+  const altQuery     = domain ? `"${short}" -${domain}` : `"${short}"`;
+
+  const btn1 = `<a href="${luckyUrl(primaryQuery)}" target="_blank" rel="noopener" style="${STYLE_PRIMARY}">🔗 Acessar</a>`;
+  const btn2 = `<a href="${searchUrl(altQuery)}" target="_blank" rel="noopener" style="${STYLE_ALT}">🌐 Alternativa</a>`;
+  return `&nbsp;${btn1}&nbsp;${btn2}`;
+}
+
+function processHtml(html) {
+  let count = 0;
+  const result = html.replace(/<b>([^<]+)<\/b>/gi, (match, inner) => {
+    const sep = inner.lastIndexOf(" - ");
+    if (sep === -1) return match;
+    const title  = inner.slice(0, sep).trim();
+    const source = inner.slice(sep + 3).trim();
+    count++;
+    return `<b>${inner}</b>${buildButtons(title, source)}`;
+  });
+  return { result, count };
+}
+
+function processFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const { result, count } = processHtml(e.target.result);
+        const blob = new Blob([result], { type: "text/html" });
+        const url  = URL.createObjectURL(blob);
+        const stem = file.name.replace(/\.html?$/i, "");
+        resolve({ name: file.name, outName: `${stem}-links.html`, url, count });
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = () => reject(new Error("Erro ao ler o arquivo"));
+    reader.readAsText(file, "utf-8");
+  });
+}
+
+function renderCard({ name, outName, url, count }) {
+  const card = document.createElement("div");
+  card.className = "file-card";
+  card.innerHTML = `
+    <div class="name">${name}</div>
+    <div class="count">${count} links</div>
+    <a class="dl" href="${url}" download="${outName}">Baixar</a>
+  `;
+  document.getElementById("results").appendChild(card);
+}
+
+function renderError(name, msg) {
+  const card = document.createElement("div");
+  card.className = "error-card";
+  card.textContent = `${name}: ${msg}`;
+  document.getElementById("results").appendChild(card);
+}
+
+async function handleFiles(files) {
+  for (const file of files) {
+    if (!/\.html?$/i.test(file.name)) continue;
+    try {
+      const info = await processFile(file);
+      renderCard(info);
+    } catch (err) {
+      renderError(file.name, err.message);
+    }
+  }
+}
+
+// drag & drop
+const dz = document.getElementById("dropzone");
+dz.addEventListener("dragover", e => { e.preventDefault(); dz.classList.add("over"); });
+dz.addEventListener("dragleave", () => dz.classList.remove("over"));
+dz.addEventListener("drop", e => {
+  e.preventDefault();
+  dz.classList.remove("over");
+  handleFiles(e.dataTransfer.files);
+});
+
+// click to browse
+document.getElementById("browseBtn").addEventListener("click", () =>
+  document.getElementById("fileInput").click()
+);
+document.getElementById("fileInput").addEventListener("change", e =>
+  handleFiles(e.target.files)
+);
+</script>
+</body>
+</html>
