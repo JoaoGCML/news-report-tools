@@ -19,8 +19,33 @@
   }
 
   h1 { font-size: 1.4rem; font-weight: 700; margin-bottom: 6px; }
-  p.sub { color: #555; font-size: 0.9rem; margin-bottom: 32px; }
+  p.sub { color: #555; font-size: 0.9rem; margin-bottom: 20px; }
 
+  /* status bar */
+  #status-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 20px;
+    margin-bottom: 28px;
+    transition: background .3s, color .3s;
+  }
+  #status-bar.online  { background: #e6f4ea; color: #1e7e34; }
+  #status-bar.offline { background: #fff3cd; color: #856404; }
+  #status-bar.checking { background: #e8eaed; color: #555; }
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  #status-bar.online  .dot { background: #1e7e34; }
+  #status-bar.offline .dot { background: #856404; }
+  #status-bar.checking .dot { background: #aaa; }
+
+  /* dropzone */
   #dropzone {
     width: 100%;
     max-width: 560px;
@@ -38,10 +63,37 @@
   #dropzone span { color: #1a73e8; font-weight: 600; cursor: pointer; }
   #fileInput { display: none; }
 
+  /* progress */
+  #progress-wrap {
+    width: 100%;
+    max-width: 560px;
+    margin-top: 20px;
+    display: none;
+  }
+  #progress-label {
+    font-size: 0.83rem;
+    color: #555;
+    margin-bottom: 6px;
+  }
+  #progress-bar-bg {
+    height: 6px;
+    background: #e0e0e0;
+    border-radius: 99px;
+    overflow: hidden;
+  }
+  #progress-bar {
+    height: 100%;
+    width: 0%;
+    background: #1a73e8;
+    border-radius: 99px;
+    transition: width .3s;
+  }
+
+  /* results */
   #results {
     width: 100%;
     max-width: 560px;
-    margin-top: 24px;
+    margin-top: 20px;
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -57,7 +109,7 @@
     box-shadow: 0 1px 4px rgba(0,0,0,.08);
   }
   .file-card .name { flex: 1; font-size: 0.9rem; font-weight: 500; word-break: break-all; }
-  .file-card .count { font-size: 0.8rem; color: #555; white-space: nowrap; }
+  .file-card .stats { font-size: 0.78rem; color: #555; white-space: nowrap; text-align: right; line-height: 1.5; }
   .file-card .dl {
     padding: 6px 14px;
     background: #1a73e8;
@@ -83,7 +135,12 @@
 <body>
 
 <h1>News Report — Injetor de Links</h1>
-<p class="sub">Carregue um ou vários relatórios HTML para adicionar links de acesso direto às notícias.</p>
+<p class="sub">Carregue relatórios HTML para adicionar links de acesso direto às notícias.</p>
+
+<div id="status-bar" class="checking">
+  <div class="dot"></div>
+  <span id="status-text">Verificando servidor local…</span>
+</div>
 
 <div id="dropzone">
   <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" stroke-width="1.5">
@@ -95,9 +152,17 @@
   <input type="file" id="fileInput" accept=".html,.htm" multiple>
 </div>
 
+<div id="progress-wrap">
+  <div id="progress-label">Resolvendo links…</div>
+  <div id="progress-bar-bg"><div id="progress-bar"></div></div>
+</div>
+
 <div id="results"></div>
 
 <script>
+const API = "http://localhost:8000";
+let serverOnline = false;
+
 const SOURCE_DOMAINS = {
   "folha de são paulo": "folha.uol.com.br",
   "folha de s.paulo": "folha.uol.com.br",
@@ -125,76 +190,175 @@ const SOURCE_DOMAINS = {
   "agence france presse": "afpforum.com",
 };
 
-const STYLE_PRIMARY = [
-  "display:inline-block","margin-left:8px","padding:2px 8px",
-  "background:#1a73e8","color:#fff","font-size:11px","font-weight:600",
-  "border-radius:4px","text-decoration:none","font-family:sans-serif",
-  "vertical-align:middle","line-height:1.6"
-].join(";");
+const STYLE_DIRECT  = "display:inline-block;margin-left:8px;padding:2px 8px;background:#1a73e8;color:#fff;font-size:11px;font-weight:600;border-radius:4px;text-decoration:none;font-family:sans-serif;vertical-align:middle;line-height:1.6;";
+const STYLE_SEARCH  = "display:inline-block;margin-left:8px;padding:2px 8px;background:#f0a500;color:#fff;font-size:11px;font-weight:600;border-radius:4px;text-decoration:none;font-family:sans-serif;vertical-align:middle;line-height:1.6;";
+const STYLE_ALT     = "display:inline-block;margin-left:4px;padding:2px 8px;background:#6c757d;color:#fff;font-size:11px;font-weight:600;border-radius:4px;text-decoration:none;font-family:sans-serif;vertical-align:middle;line-height:1.6;";
 
-const STYLE_ALT = [
-  "display:inline-block","margin-left:4px","padding:2px 8px",
-  "background:#6c757d","color:#fff","font-size:11px","font-weight:600",
-  "border-radius:4px","text-decoration:none","font-family:sans-serif",
-  "vertical-align:middle","line-height:1.6"
-].join(";");
+// --- status bar ---
 
-function searchUrl(query) {
+function setStatus(state, text) {
+  const bar = document.getElementById("status-bar");
+  bar.className = state;
+  document.getElementById("status-text").textContent = text;
+}
+
+async function checkServer() {
+  try {
+    const r = await fetch(`${API}/ping`, { signal: AbortSignal.timeout(1500) });
+    serverOnline = r.ok;
+  } catch {
+    serverOnline = false;
+  }
+  if (serverOnline) {
+    setStatus("online", "Servidor local ativo — links diretos habilitados");
+  } else {
+    setStatus("offline", "Servidor offline — usando busca Google (rode server.py para links diretos)");
+  }
+}
+
+// verifica ao carregar e a cada 15s
+checkServer();
+setInterval(checkServer, 15000);
+
+// --- URL helpers ---
+
+function googleSearch(query) {
   return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
 }
 
-function buildButtons(title, source) {
-  const short = title.slice(0, 80).trimEnd();
-  const key = source.toLowerCase().trim();
-  const domain = SOURCE_DOMAINS[key];
-
-  // site-specific quando domínio conhecido; geral caso contrário
-  const primaryQuery = domain ? `"${short}" site:${domain}` : `"${short}" ${source}`;
-  const altQuery     = domain ? `"${short}" -${domain}` : `"${short}"`;
-
-  const btn1 = `<a href="${searchUrl(primaryQuery)}" target="_blank" rel="noopener" style="${STYLE_PRIMARY}">🔗 Acessar</a>`;
-  const btn2 = `<a href="${searchUrl(altQuery)}" target="_blank" rel="noopener" style="${STYLE_ALT}">🌐 Alternativa</a>`;
-  return `&nbsp;${btn1}&nbsp;${btn2}`;
+function fallbackPrimary(title, source) {
+  const domain = SOURCE_DOMAINS[source.toLowerCase().trim()];
+  const q = domain ? `"${title}" site:${domain}` : `"${title}" ${source}`;
+  return googleSearch(q);
 }
 
-function processHtml(html) {
-  let count = 0;
+function altUrl(title, source) {
+  const domain = SOURCE_DOMAINS[source.toLowerCase().trim()];
+  return googleSearch(domain ? `"${title}" -${domain}` : `"${title}"`);
+}
+
+// --- extract articles from HTML ---
+
+function extractArticles(html) {
+  const articles = [];
+  const re = /<b>([^<]+)<\/b>/gi;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    const inner = m[1];
+    const sep = inner.lastIndexOf(" - ");
+    if (sep === -1) continue;
+    articles.push({
+      title:  inner.slice(0, sep).trim(),
+      source: inner.slice(sep + 3).trim(),
+      raw:    inner,
+    });
+  }
+  return articles;
+}
+
+// --- resolve via server (batch) ---
+
+async function resolveViaServer(articles) {
+  const payload = articles.map(a => ({ title: a.title.slice(0, 80), source: a.source }));
+  const r = await fetch(`${API}/resolve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ articles: payload }),
+    signal: AbortSignal.timeout(articles.length * 2000 + 5000),
+  });
+  const data = await r.json();
+  // { title → url } map
+  const map = {};
+  for (const item of data.results) map[item.title] = item.url;
+  return map;
+}
+
+// --- inject buttons into HTML ---
+
+function injectButtons(html, urlMap) {
+  let direct = 0, fallback = 0;
+
   const result = html.replace(/<b>([^<]+)<\/b>/gi, (match, inner) => {
     const sep = inner.lastIndexOf(" - ");
     if (sep === -1) return match;
     const title  = inner.slice(0, sep).trim();
     const source = inner.slice(sep + 3).trim();
-    count++;
-    return `<b>${inner}</b>${buildButtons(title, source)}`;
+    const short  = title.slice(0, 80).trimEnd();
+
+    let btn1;
+    const resolvedUrl = urlMap ? urlMap[short] : null;
+    if (resolvedUrl) {
+      btn1 = `<a href="${resolvedUrl}" target="_blank" rel="noopener" style="${STYLE_DIRECT}">🔗 Acessar</a>`;
+      direct++;
+    } else {
+      btn1 = `<a href="${fallbackPrimary(short, source)}" target="_blank" rel="noopener" style="${STYLE_SEARCH}" title="Link direto não encontrado — abre busca">🔍 Buscar</a>`;
+      fallback++;
+    }
+
+    const btn2 = `<a href="${altUrl(short, source)}" target="_blank" rel="noopener" style="${STYLE_ALT}">🌐 Alternativa</a>`;
+    return `<b>${inner}</b>&nbsp;${btn1}&nbsp;${btn2}`;
   });
-  return { result, count };
+
+  return { result, direct, fallback };
 }
 
-function processFile(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = e => {
-      try {
-        const { result, count } = processHtml(e.target.result);
-        const blob = new Blob([result], { type: "text/html" });
-        const url  = URL.createObjectURL(blob);
-        const stem = file.name.replace(/\.html?$/i, "");
-        resolve({ name: file.name, outName: `${stem}-links.html`, url, count });
-      } catch (err) {
-        reject(err);
-      }
-    };
-    reader.onerror = () => reject(new Error("Erro ao ler o arquivo"));
-    reader.readAsText(file, "utf-8");
-  });
+// --- progress bar ---
+
+function setProgress(pct, label) {
+  document.getElementById("progress-wrap").style.display = "block";
+  document.getElementById("progress-bar").style.width = pct + "%";
+  document.getElementById("progress-label").textContent = label;
 }
 
-function renderCard({ name, outName, url, count }) {
+function hideProgress() {
+  document.getElementById("progress-wrap").style.display = "none";
+}
+
+// --- process one file ---
+
+async function processFile(file) {
+  const html = await file.text();
+  const articles = extractArticles(html);
+
+  let urlMap = null;
+
+  if (serverOnline && articles.length > 0) {
+    setProgress(10, `Resolvendo ${articles.length} artigos via servidor…`);
+    try {
+      urlMap = await resolveViaServer(articles);
+      setProgress(90, "Injetando links…");
+    } catch {
+      // servidor falhou no meio — cai no fallback
+      urlMap = null;
+    }
+  }
+
+  const { result, direct, fallback } = injectButtons(html, urlMap);
+  const blob = new Blob([result], { type: "text/html" });
+  const url  = URL.createObjectURL(blob);
+  const stem = file.name.replace(/\.html?$/i, "");
+
+  return {
+    name:    file.name,
+    outName: `${stem}-links.html`,
+    url,
+    direct,
+    fallback,
+    total:   direct + fallback,
+  };
+}
+
+// --- render result card ---
+
+function renderCard({ name, outName, url, direct, fallback, total }) {
   const card = document.createElement("div");
   card.className = "file-card";
+  const statsHtml = serverOnline
+    ? `${direct} diretos<br>${fallback > 0 ? `${fallback} buscas` : ""}`
+    : `${total} buscas`;
   card.innerHTML = `
     <div class="name">${name}</div>
-    <div class="count">${count} links</div>
+    <div class="stats">${statsHtml}</div>
     <a class="dl" href="${url}" download="${outName}">Baixar</a>
   `;
   document.getElementById("results").appendChild(card);
@@ -207,9 +371,14 @@ function renderError(name, msg) {
   document.getElementById("results").appendChild(card);
 }
 
+// --- handle file drop/select ---
+
 async function handleFiles(files) {
-  for (const file of files) {
-    if (!/\.html?$/i.test(file.name)) continue;
+  const htmlFiles = [...files].filter(f => /\.html?$/i.test(f.name));
+  if (!htmlFiles.length) return;
+
+  for (const file of htmlFiles) {
+    setProgress(0, `Processando ${file.name}…`);
     try {
       const info = await processFile(file);
       renderCard(info);
@@ -217,9 +386,11 @@ async function handleFiles(files) {
       renderError(file.name, err.message);
     }
   }
+  hideProgress();
 }
 
-// drag & drop
+// --- events ---
+
 const dz = document.getElementById("dropzone");
 dz.addEventListener("dragover", e => { e.preventDefault(); dz.classList.add("over"); });
 dz.addEventListener("dragleave", () => dz.classList.remove("over"));
@@ -228,8 +399,6 @@ dz.addEventListener("drop", e => {
   dz.classList.remove("over");
   handleFiles(e.dataTransfer.files);
 });
-
-// click to browse
 document.getElementById("browseBtn").addEventListener("click", () =>
   document.getElementById("fileInput").click()
 );
