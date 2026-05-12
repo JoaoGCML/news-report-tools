@@ -59,7 +59,7 @@ import re
 import time
 import argparse
 from pathlib import Path
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 
 try:
     from ddgs import DDGS
@@ -117,13 +117,25 @@ def _google(query: str) -> str:
     return f"https://www.google.com/search?q={quote_plus(query)}"
 
 
+def _is_article_url(url: str) -> bool:
+    """
+    Heurística para distinguir URLs de artigos de páginas de seção/índice.
+    Artigos têm caminhos mais longos; páginas de seção têm 0-1 segmentos.
+    Ex. rejeitado: folha.uol.com.br/cotidiano/
+    Ex. aceito:    folha.uol.com.br/cotidiano/2026/05/ataques-pcc.shtml
+    """
+    path = urlparse(url).path.rstrip("/")
+    segments = [s for s in path.split("/") if s]
+    return len(segments) >= 2
+
+
 def resolve_url(title: str, source: str, domain: str | None = None) -> str | None:
     """
     Resolve a URL real de um artigo via DuckDuckGo.
 
     Parâmetros
     ----------
-    title   : título do artigo (será truncado a 80 caracteres)
+    title   : título do artigo (será truncado a 120 caracteres)
     source  : nome do veículo
     domain  : domínio do veículo (ex: 'folha.uol.com.br'); se None, busca geral
 
@@ -133,13 +145,25 @@ def resolve_url(title: str, source: str, domain: str | None = None) -> str | Non
     """
     if not HAS_DDGS:
         return None
-    short = title[:80].rstrip()
+    short = title[:120].rstrip()
     query = f'"{short}" site:{domain}' if domain else f'"{short}" {source}'
     try:
         with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=1))
-        if results:
-            return results[0]["href"]
+            # 1ª tentativa: últimos 30 dias — evita artigos antigos com título similar
+            # (ex: "PCC há 20 anos" não retorna artigos de 2006)
+            try:
+                results = list(ddgs.text(query, max_results=2, timelimit="m"))
+            except Exception:
+                results = []
+
+            # 2ª tentativa: sem filtro de tempo se não encontrou no mês
+            if not results:
+                results = list(ddgs.text(query, max_results=2))
+
+        # filtra URLs que parecem páginas de seção/índice, não artigos reais
+        articles = [r for r in results if _is_article_url(r["href"])]
+        if articles:
+            return articles[0]["href"]
     except Exception:
         pass
     return None
@@ -147,7 +171,7 @@ def resolve_url(title: str, source: str, domain: str | None = None) -> str | Non
 
 def _build_buttons(title: str, source: str) -> str:
     """Retorna o HTML dos botões para um par (título, veículo)."""
-    short  = title[:80].rstrip()
+    short  = title[:120].rstrip()
     domain = SOURCE_DOMAINS.get(source.lower().strip())
 
     direct = resolve_url(short, source, domain)
@@ -159,7 +183,7 @@ def _build_buttons(title: str, source: str) -> str:
         fallback_q = f'"{short}" site:{domain}' if domain else f'"{short}" {source}'
         btn1 = f'<a href="{_google(fallback_q)}" target="_blank" rel="noopener" style="{_STYLE_FALLBACK}" title="URL direta não encontrada — abre busca">🔍 Buscar</a>'
 
-    alt_q = f'"{short}" -{domain}' if domain else f'"{short}"'
+    alt_q = f'"{title[:120].rstrip()}" -{domain}' if domain else f'"{title[:120].rstrip()}"'
     btn2 = f'<a href="{_google(alt_q)}" target="_blank" rel="noopener" style="{_STYLE_ALT}">🌐 Alternativa</a>'
 
     return f'&nbsp;{btn1}&nbsp;{btn2}'
