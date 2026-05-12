@@ -57,7 +57,7 @@ class App(TkinterDnD.Tk if HAS_DND else tk.Tk):
     # ── layout ─────────────────────────────────────────────────────────────
 
     def _build_ui(self):
-        pad = dict(padx=24, pady=0)
+        pad = dict(padx=24)
 
         # título
         tk.Label(self, text="News Report — Injetor de Links",
