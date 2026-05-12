@@ -234,7 +234,8 @@
 <div id="results"></div>
 
 <script>
-const API = "http://localhost:8000";
+// quando servido pelo servidor local usa URLs relativas (sem mixed content)
+const API = window.location.hostname === "localhost" ? "" : "http://localhost:8000";
 let serverOnline = false;
 
 const SOURCE_DOMAINS = {

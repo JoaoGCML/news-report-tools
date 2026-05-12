@@ -6,13 +6,15 @@ Uso:
     pip install fastapi uvicorn ddgs
     python3 server.py
 
-A página web em joaogcml.github.io/news-report-tools detecta o servidor
-automaticamente e usa URLs reais em vez de buscas no Google.
+Depois abra http://localhost:8000 no browser.
 """
 
 import time
+import webbrowser
 import uvicorn
+from pathlib import Path
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from ddgs import DDGS
@@ -48,10 +50,18 @@ app = FastAPI(title="News Report Link Resolver")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # permite chamadas da página do GitHub Pages
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+HERE = Path(__file__).parent
+
+
+@app.get("/")
+def serve_index():
+    """Serve a página web diretamente — sem problema de mixed content."""
+    return FileResponse(HERE / "index.html")
 
 
 class Article(BaseModel):
@@ -100,5 +110,6 @@ def resolve(req: ResolveRequest):
 
 if __name__ == "__main__":
     print("🚀  Servidor iniciado em http://localhost:8000")
-    print("    Mantenha este terminal aberto enquanto usa a página web.\n")
+    print("    Abrindo o browser automaticamente…\n")
+    webbrowser.open("http://localhost:8000")
     uvicorn.run(app, host="127.0.0.1", port=8000, log_level="warning")
