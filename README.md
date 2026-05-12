@@ -1,6 +1,6 @@
 # news-report-tools
 
-Ferramentas para enriquecer relatórios HTML de monitoramento de notícias (Factiva / Quarto) com links diretos aos artigos.
+Ferramentas para enriquecer relatórios HTML de monitoramento de notícias prjt com links diretos aos artigos.
 
 ---
 
