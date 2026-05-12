@@ -103,6 +103,22 @@ SOURCE_DOMAINS: dict[str, str] = {
     "jornal economico":           "jornaleconomico.sapo.pt",
     "expresso das ilhas online":  "expressodasilhas.cv",
     "expresso das ilhas":         "expressodasilhas.cv",
+    # Peru
+    "diario correo":              "diariocorreo.pe",
+    "correo":                     "diariocorreo.pe",
+    "el comercio":                "elcomercio.pe",
+    "la república":               "larepublica.pe",
+    "la republica":               "larepublica.pe",
+    "rpp":                        "rpp.pe",
+    "gestión":                    "gestion.pe",
+    "gestion":                    "gestion.pe",
+    "peru21":                     "peru21.pe",
+    "el peruano":                 "elperuano.pe",
+    "andina":                     "andina.pe",
+    "expreso":                    "expreso.com.pe",
+    "exitosa":                    "exitosanoticias.pe",
+    "ojo":                        "diarioojo.com",
+    "trome":                      "trome.pe",
 }
 
 # ---------------------------------------------------------------------------
@@ -117,16 +133,52 @@ def _google(query: str) -> str:
     return f"https://www.google.com/search?q={quote_plus(query)}"
 
 
-def _is_article_url(url: str) -> bool:
+_BLOCKED_DOMAINS = {
+    "wikipedia.org", "wikimedia.org", "wikidata.org",
+    "britannica.com", "dictionary.com", "merriam-webster.com",
+    "youtube.com", "facebook.com", "twitter.com", "x.com",
+    "instagram.com", "reddit.com", "pinterest.com",
+}
+
+_ACCENT_MAP = str.maketrans(
+    "áàãâäéèêëíìîïóòõôöúùûüçñÁÀÃÂÄÉÈÊËÍÌÎÏÓÒÕÔÖÚÙÛÜÇÑ",
+    "aaaааéèeeíiiiooооouuuucnAAAAÄÉÈEËÍÌÎÏOOOOÖUUUUCN",
+)
+
+
+def _normalize(s: str) -> str:
+    return s.lower().translate(_ACCENT_MAP)
+
+
+def _is_article_url(url: str, title: str = "") -> bool:
     """
-    Heurística para distinguir URLs de artigos de páginas de seção/índice.
-    Artigos têm caminhos mais longos; páginas de seção têm 0-1 segmentos.
-    Ex. rejeitado: folha.uol.com.br/cotidiano/
-    Ex. aceito:    folha.uol.com.br/cotidiano/2026/05/ataques-pcc.shtml
+    Valida se uma URL é realmente um artigo relevante:
+    1. Rejeita domínios não-noticiosos (Wikipedia, redes sociais, etc.)
+    2. Rejeita páginas de seção/índice (path muito curto)
+    3. Se a URL tem slug legível, verifica que pelo menos 3 palavras
+       significativas do título aparecem nele — filtra artigos errados
+       do mesmo veículo (ex: outro artigo de "Poder Judicial" que não é o certo)
     """
-    path = urlparse(url).path.rstrip("/")
+    parsed = urlparse(url)
+    hostname = parsed.netloc.lower().removeprefix("www.").removeprefix("m.")
+
+    if any(hostname == d or hostname.endswith("." + d) for d in _BLOCKED_DOMAINS):
+        return False
+
+    path = parsed.path.rstrip("/")
     segments = [s for s in path.split("/") if s]
-    return len(segments) >= 2
+    if len(segments) < 2:
+        return False
+
+    # verifica overlap de palavras título ↔ slug apenas quando o slug é legível
+    slug_words = re.findall(r"\w{4,}", _normalize(path))
+    if len(slug_words) >= 3 and title:
+        title_words = set(re.findall(r"\w{5,}", _normalize(title)))
+        matches = sum(1 for w in title_words if w in path.lower())
+        if matches < 3:
+            return False
+
+    return True
 
 
 def resolve_url(title: str, source: str, domain: str | None = None) -> str | None:
@@ -160,8 +212,8 @@ def resolve_url(title: str, source: str, domain: str | None = None) -> str | Non
             if not results:
                 results = list(ddgs.text(query, max_results=2))
 
-        # filtra URLs que parecem páginas de seção/índice, não artigos reais
-        articles = [r for r in results if _is_article_url(r["href"])]
+        # filtra URLs inválidas e artigos claramente errados
+        articles = [r for r in results if _is_article_url(r["href"], title)]
         if articles:
             return articles[0]["href"]
     except Exception:
