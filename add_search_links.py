@@ -54,9 +54,12 @@ DEPENDÊNCIAS
 import sys
 import re
 import time
+import json
+import threading
 import argparse
 from pathlib import Path
 from urllib.parse import quote_plus, urlparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 try:
     from ddgs import DDGS
@@ -64,6 +67,32 @@ try:
 except ImportError:
     HAS_DDGS = False
     print("Aviso: instale ddgs para links diretos  →  pip install ddgs", file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
+# Cache persistente — evita re-resolver artigos já vistos
+# Ficheiro: ~/.news-report-tools-cache.json
+# ---------------------------------------------------------------------------
+_CACHE_PATH = Path.home() / ".news-report-tools-cache.json"
+_cache_lock = threading.Lock()
+
+
+def _load_cache() -> dict:
+    try:
+        return json.loads(_CACHE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_cache(cache: dict) -> None:
+    try:
+        _CACHE_PATH.write_text(json.dumps(cache, ensure_ascii=False, indent=2),
+                               encoding="utf-8")
+    except Exception:
+        pass
+
+
+_URL_CACHE: dict = _load_cache()
 
 
 # ---------------------------------------------------------------------------
@@ -182,6 +211,9 @@ def resolve_url(title: str, source: str, domain: str | None = None) -> str | Non
     """
     Resolve a URL real de um artigo via DuckDuckGo.
 
+    Usa cache persistente (~/.news-report-tools-cache.json) para evitar
+    re-resolver artigos já vistos em execuções anteriores.
+
     Parâmetros
     ----------
     title   : título do artigo (será truncado a 120 caracteres)
@@ -194,47 +226,48 @@ def resolve_url(title: str, source: str, domain: str | None = None) -> str | Non
     """
     if not HAS_DDGS:
         return None
-    short = title[:120].rstrip()
+
+    short     = title[:120].rstrip()
+    cache_key = f"{short.lower()}|{domain or source.lower()}"
+
+    # verifica cache antes de fazer qualquer request
+    with _cache_lock:
+        if cache_key in _URL_CACHE:
+            return _URL_CACHE[cache_key]  # pode ser None (miss conhecido)
+
     query = f'"{short}" site:{domain}' if domain else f'"{short}" {source}'
+    url   = None
     try:
         with DDGS() as ddgs:
-            # 1ª tentativa: últimos 30 dias — evita artigos antigos com título similar
-            # (ex: "PCC há 20 anos" não retorna artigos de 2006)
             try:
                 results = list(ddgs.text(query, max_results=2, timelimit="m"))
             except Exception:
                 results = []
-
-            # 2ª tentativa: sem filtro de tempo se não encontrou no mês
             if not results:
                 results = list(ddgs.text(query, max_results=2))
 
-        # filtra URLs inválidas e artigos claramente errados
         articles = [r for r in results if _is_article_url(r["href"], title)]
         if articles:
-            return articles[0]["href"]
+            url = articles[0]["href"]
     except Exception:
         pass
-    return None
+
+    # persiste resultado (incluindo None para não tentar de novo)
+    with _cache_lock:
+        _URL_CACHE[cache_key] = url
+        _save_cache(_URL_CACHE)
+
+    return url
 
 
-def _build_buttons(title: str, source: str) -> str:
-    """Retorna o HTML dos botões para um par (título, veículo)."""
-    short  = title[:120].rstrip()
-    domain = SOURCE_DOMAINS.get(source.lower().strip())
-
-    direct = resolve_url(short, source, domain)
-    time.sleep(0.4)  # cadência para não ser bloqueado pelo DDG
-
-    # Quick Search — always present, broad search without quotes or site restriction
-    quick_q = title[:80].rstrip()
+def _build_buttons_from(title: str, direct_url: str | None) -> str:
+    """Monta os botões HTML dado o título e a URL já resolvida (ou None)."""
+    quick_q    = title[:80].rstrip()
     btn_search = f'<a href="{_google(quick_q)}" target="_blank" rel="noopener" style="{_STYLE_SEARCH}">🔍 Quick Search</a>'
-
-    if direct:
-        btn_access = f'<a href="{direct}" target="_blank" rel="noopener" style="{_STYLE_ACCESS}">🔗 Access</a>'
+    if direct_url:
+        btn_access = f'<a href="{direct_url}" target="_blank" rel="noopener" style="{_STYLE_ACCESS}">🔗 Access</a>'
         return f'&nbsp;{btn_access}&nbsp;{btn_search}'
-    else:
-        return f'&nbsp;{btn_search}'
+    return f'&nbsp;{btn_search}'
 
 
 def process_html(html: str) -> tuple[str, int, int]:
@@ -252,24 +285,62 @@ def process_html(html: str) -> tuple[str, int, int]:
         direct    — número de links diretos resolvidos com sucesso
         fallback  — número de artigos que usaram busca como fallback
     """
+    # 1. extrai todos os artigos do HTML
+    pattern = re.compile(r"<b>([^<]+)</b>", re.IGNORECASE)
+    matches = list(pattern.finditer(html))
+    articles = {}  # inner_text → (title, source)
+    for m in matches:
+        inner = m.group(1)
+        sep   = inner.rfind(" - ")
+        if sep != -1:
+            articles[inner] = (inner[:sep].strip(), inner[sep + 3:].strip())
+
+    # 2. resolve URLs em paralelo (4 workers) com throttle por worker
+    url_map: dict[str, str | None] = {}
+
+    def _resolve_one(inner: str) -> tuple[str, str | None]:
+        title, source = articles[inner]
+        domain = SOURCE_DOMAINS.get(source.lower().strip())
+        time.sleep(0.2)  # throttle por worker — 4 workers = ~50ms entre requests
+        return inner, resolve_url(title, source, domain)
+
+    uncached = [k for k in articles if
+                f"{articles[k][0][:120].rstrip().lower()}|{SOURCE_DOMAINS.get(articles[k][1].lower().strip(), articles[k][1].lower())}"
+                not in _URL_CACHE]
+
+    # cached articles — instant
+    for inner, (title, source) in articles.items():
+        domain    = SOURCE_DOMAINS.get(source.lower().strip())
+        cache_key = f"{title[:120].rstrip().lower()}|{domain or source.lower()}"
+        if cache_key in _URL_CACHE:
+            url_map[inner] = _URL_CACHE[cache_key]
+
+    # uncached — parallel DDG requests
+    if uncached:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futures = {pool.submit(_resolve_one, k): k for k in uncached}
+            for future in as_completed(futures):
+                inner, url = future.result()
+                url_map[inner] = url
+
+    # 3. injeta botões no HTML
     direct_count = fallback_count = 0
 
     def _replace(match: re.Match) -> str:
         nonlocal direct_count, fallback_count
         inner = match.group(1)
-        sep = inner.rfind(" - ")
-        if sep == -1:
+        if inner not in articles:
             return match.group(0)
-        title  = inner[:sep].strip()
-        source = inner[sep + 3:].strip()
-        buttons = _build_buttons(title, source)
-        if "🔗 Access" in buttons:
+        title, source = articles[inner]
+        direct_url    = url_map.get(inner)
+        buttons       = _build_buttons_from(title, direct_url)
+        if direct_url:
             direct_count += 1
         else:
             fallback_count += 1
         return f"<b>{inner}</b>{buttons}"
 
-    modified = re.compile(r"<b>([^<]+)</b>", re.IGNORECASE).sub(_replace, html)
+    modified = pattern.sub(_replace, html)
     return modified, direct_count, fallback_count
 
 
@@ -303,10 +374,12 @@ def main() -> None:
             output_path = input_path.with_stem(input_path.stem + "-links")
 
         print(f"Processando {input_path.name}…")
+        t0   = time.time()
         html = input_path.read_text(encoding="utf-8")
         modified, direct, fallback = process_html(html)
         output_path.write_text(modified, encoding="utf-8")
-        print(f"  ✓ {direct} links diretos  |  {fallback} fallbacks  →  {output_path}")
+        elapsed = time.time() - t0
+        print(f"  ✓ {direct} Access  |  {fallback} Quick Search  |  {elapsed:.0f}s  →  {output_path}")
 
 
 if __name__ == "__main__":
