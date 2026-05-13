@@ -196,14 +196,25 @@ def _is_article_url(url: str, title: str = "") -> bool:
     if len(segments) < 2:
         return False
 
-    # verifica overlap de palavras título ↔ slug apenas quando o slug é legível
-    slug_words = re.findall(r"\w{4,}", _normalize(path))
-    if len(slug_words) >= 3 and title:
-        title_words = set(re.findall(r"\w{5,}", _normalize(title)))
-        matches = sum(1 for w in title_words if w in path.lower())
-        if matches < 3:
-            return False
+    return True
 
+
+def _is_article_url_strict(url: str, title: str) -> bool:
+    """
+    Validação estrita para buscas sem site: — exige overlap de palavras
+    entre título e slug para evitar artigos claramente errados.
+    Usada apenas em buscas gerais (sem domínio conhecido).
+    """
+    if not _is_article_url(url):
+        return False
+    parsed = urlparse(url)
+    path   = parsed.path.rstrip("/")
+    slug_words = re.findall(r"\w{4,}", _normalize(path))
+    if len(slug_words) >= 3:
+        title_words = set(re.findall(r"\w{5,}", _normalize(title)))
+        matches = sum(1 for w in title_words if w in _normalize(path))
+        if matches < 2:
+            return False
     return True
 
 
@@ -246,7 +257,12 @@ def resolve_url(title: str, source: str, domain: str | None = None) -> str | Non
             if not results:
                 results = list(ddgs.text(query, max_results=2))
 
-        articles = [r for r in results if _is_article_url(r["href"], title)]
+        # com site: confiamos no ranking do DDG — só filtramos bloqueados e seções
+        # sem site: aplicamos validação de overlap título↔slug para evitar erros
+        if domain:
+            articles = [r for r in results if _is_article_url(r["href"])]
+        else:
+            articles = [r for r in results if _is_article_url_strict(r["href"], title)]
         if articles:
             url = articles[0]["href"]
     except Exception:
