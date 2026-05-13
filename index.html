@@ -169,11 +169,9 @@ function searchUrl(q) {
 function buildButtons(title, source) {
   const short  = title.slice(0, 80).trimEnd();
   const domain = SOURCE_DOMAINS[source.toLowerCase().trim()];
-  const q1      = domain ? `"${short}" site:${domain}` : `"${short}" ${source}`;
-  const related = title.slice(0, 80).trimEnd();
-  // web app has no DDG resolver — primary always shows site-specific search
-  return `&nbsp;<a href="${searchUrl(q1)}" target="_blank" rel="noopener" style="${STYLE_SEARCH}">🔍 Quick Search</a>`
-       + `&nbsp;<a href="${searchUrl(related)}" target="_blank" rel="noopener" style="${STYLE_RELATED}">🌐 Related</a>`;
+  // web app has no DDG resolver — always shows Quick Search (broad, no quotes)
+  const qs = title.slice(0, 80).trimEnd();
+  return `&nbsp;<a href="${searchUrl(qs)}" target="_blank" rel="noopener" style="${STYLE_SEARCH}">🔍 Quick Search</a>`;
 }
 
 function processHtml(html) {

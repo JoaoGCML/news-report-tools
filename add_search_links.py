@@ -226,16 +226,15 @@ def _build_buttons(title: str, source: str) -> str:
     direct = resolve_url(short, source, domain)
     time.sleep(0.4)  # cadência para não ser bloqueado pelo DDG
 
+    # Quick Search — always present, broad search without quotes or site restriction
+    quick_q = title[:80].rstrip()
+    btn_search = f'<a href="{_google(quick_q)}" target="_blank" rel="noopener" style="{_STYLE_SEARCH}">🔍 Quick Search</a>'
+
     if direct:
-        btn1 = f'<a href="{direct}" target="_blank" rel="noopener" style="{_STYLE_ACCESS}">🔗 Access</a>'
+        btn_access = f'<a href="{direct}" target="_blank" rel="noopener" style="{_STYLE_ACCESS}">🔗 Access</a>'
+        return f'&nbsp;{btn_access}&nbsp;{btn_search}'
     else:
-        fallback_q = f'"{short}" site:{domain}' if domain else f'"{short}" {source}'
-        btn1 = f'<a href="{_google(fallback_q)}" target="_blank" rel="noopener" style="{_STYLE_SEARCH}" title="Direct URL not found — opens search">🔍 Quick Search</a>'
-
-    related_q = title[:80].rstrip()
-    btn2 = f'<a href="{_google(related_q)}" target="_blank" rel="noopener" style="{_STYLE_RELATED}">🌐 Related</a>'
-
-    return f'&nbsp;{btn1}&nbsp;{btn2}'
+        return f'&nbsp;{btn_search}'
 
 
 def process_html(html: str) -> tuple[str, int, int]:
