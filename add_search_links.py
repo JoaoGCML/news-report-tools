@@ -13,13 +13,10 @@ Cada notícia no HTML tem o formato:
 O script localiza esse padrão, resolve a URL real do artigo via DuckDuckGo
 e injeta dois botões ao lado de cada headline:
 
-    🔗 Acessar    — link direto ao artigo original
-    🌐 Alternativa — busca Google excluindo o veículo original
-                     (útil para encontrar cobertura aberta do mesmo fato)
-
-Quando a URL real não é encontrada (artigo muito recente, paywall forte,
-veículo não indexado), o botão 🔍 Buscar abre a busca site-específica
-no Google como fallback.
+    🔗 Access       — direct link to the original article (resolved via DDG)
+    🔍 Quick Search — fallback when the direct URL is not found; opens a
+                      site-specific Google search
+    🌐 Related      — broad Google search for other sources covering the same story
 
 USO COMO SCRIPT
 ---------------
@@ -124,9 +121,9 @@ SOURCE_DOMAINS: dict[str, str] = {
 # ---------------------------------------------------------------------------
 # Estilos dos botões injetados
 # ---------------------------------------------------------------------------
-_STYLE_DIRECT   = "display:inline-block;margin-left:8px;padding:2px 8px;background:#1a73e8;color:#fff;font-size:11px;font-weight:600;border-radius:4px;text-decoration:none;font-family:sans-serif;vertical-align:middle;line-height:1.6;"
-_STYLE_FALLBACK = "display:inline-block;margin-left:8px;padding:2px 8px;background:#f0a500;color:#fff;font-size:11px;font-weight:600;border-radius:4px;text-decoration:none;font-family:sans-serif;vertical-align:middle;line-height:1.6;"
-_STYLE_ALT      = "display:inline-block;margin-left:4px;padding:2px 8px;background:#6c757d;color:#fff;font-size:11px;font-weight:600;border-radius:4px;text-decoration:none;font-family:sans-serif;vertical-align:middle;line-height:1.6;"
+_STYLE_ACCESS  = "display:inline-block;margin-left:8px;padding:2px 8px;background:#1a73e8;color:#fff;font-size:11px;font-weight:600;border-radius:4px;text-decoration:none;font-family:sans-serif;vertical-align:middle;line-height:1.6;"
+_STYLE_SEARCH  = "display:inline-block;margin-left:8px;padding:2px 8px;background:#f0a500;color:#fff;font-size:11px;font-weight:600;border-radius:4px;text-decoration:none;font-family:sans-serif;vertical-align:middle;line-height:1.6;"
+_STYLE_RELATED = "display:inline-block;margin-left:4px;padding:2px 8px;background:#6c757d;color:#fff;font-size:11px;font-weight:600;border-radius:4px;text-decoration:none;font-family:sans-serif;vertical-align:middle;line-height:1.6;"
 
 
 def _google(query: str) -> str:
@@ -230,15 +227,13 @@ def _build_buttons(title: str, source: str) -> str:
     time.sleep(0.4)  # cadência para não ser bloqueado pelo DDG
 
     if direct:
-        btn1 = f'<a href="{direct}" target="_blank" rel="noopener" style="{_STYLE_DIRECT}">🔗 Acessar</a>'
+        btn1 = f'<a href="{direct}" target="_blank" rel="noopener" style="{_STYLE_ACCESS}">🔗 Access</a>'
     else:
         fallback_q = f'"{short}" site:{domain}' if domain else f'"{short}" {source}'
-        btn1 = f'<a href="{_google(fallback_q)}" target="_blank" rel="noopener" style="{_STYLE_FALLBACK}" title="URL direta não encontrada — abre busca">🔍 Buscar</a>'
+        btn1 = f'<a href="{_google(fallback_q)}" target="_blank" rel="noopener" style="{_STYLE_SEARCH}" title="Direct URL not found — opens search">🔍 Quick Search</a>'
 
-    # Alternativa: sem aspas e sem exclusão — busca ampla pelo mesmo fato,
-    # inclui o veículo original para garantir resultados
-    alt_q = title[:80].rstrip()
-    btn2 = f'<a href="{_google(alt_q)}" target="_blank" rel="noopener" style="{_STYLE_ALT}">🌐 Alternativa</a>'
+    related_q = title[:80].rstrip()
+    btn2 = f'<a href="{_google(related_q)}" target="_blank" rel="noopener" style="{_STYLE_RELATED}">🌐 Related</a>'
 
     return f'&nbsp;{btn1}&nbsp;{btn2}'
 
@@ -269,7 +264,7 @@ def process_html(html: str) -> tuple[str, int, int]:
         title  = inner[:sep].strip()
         source = inner[sep + 3:].strip()
         buttons = _build_buttons(title, source)
-        if "🔗 Acessar" in buttons:
+        if "🔗 Access" in buttons:
             direct_count += 1
         else:
             fallback_count += 1

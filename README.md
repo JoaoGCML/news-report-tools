@@ -8,11 +8,11 @@ Ferramentas para enriquecer relatórios HTML de monitoramento de notícias prjt 
 
 Para cada notícia no formato `<b>Título - Veículo</b>`, injeta dois botões:
 
-| Botão | Cor | O que faz |
+| Button | Colour | Action |
 |---|---|---|
-| 🔗 Acessar | Azul | Link direto ao artigo original (resolvido via DuckDuckGo) |
-| 🔍 Buscar | Amarelo | Fallback — busca site-específica no Google quando o link direto não é encontrado |
-| 🌐 Alternativa | Cinza | Busca Google excluindo o veículo original — outras fontes cobrindo o mesmo fato |
+| 🔗 Access | Blue | Direct link to the original article (resolved via DuckDuckGo) |
+| 🔍 Quick Search | Yellow | Fallback — site-specific Google search when the direct URL is not found |
+| 🌐 Related | Grey | Broad Google search — other sources covering the same story |
 
 ### Instalação
 

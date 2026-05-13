@@ -158,8 +158,9 @@ const SOURCE_DOMAINS = {
   "trome":                      "trome.pe",
 };
 
-const STYLE_PRIMARY = "display:inline-block;margin-left:8px;padding:2px 8px;background:#1a73e8;color:#fff;font-size:11px;font-weight:600;border-radius:4px;text-decoration:none;font-family:sans-serif;vertical-align:middle;line-height:1.6;";
-const STYLE_ALT     = "display:inline-block;margin-left:4px;padding:2px 8px;background:#6c757d;color:#fff;font-size:11px;font-weight:600;border-radius:4px;text-decoration:none;font-family:sans-serif;vertical-align:middle;line-height:1.6;";
+const STYLE_ACCESS  = "display:inline-block;margin-left:8px;padding:2px 8px;background:#1a73e8;color:#fff;font-size:11px;font-weight:600;border-radius:4px;text-decoration:none;font-family:sans-serif;vertical-align:middle;line-height:1.6;";
+const STYLE_SEARCH  = "display:inline-block;margin-left:8px;padding:2px 8px;background:#f0a500;color:#fff;font-size:11px;font-weight:600;border-radius:4px;text-decoration:none;font-family:sans-serif;vertical-align:middle;line-height:1.6;";
+const STYLE_RELATED = "display:inline-block;margin-left:4px;padding:2px 8px;background:#6c757d;color:#fff;font-size:11px;font-weight:600;border-radius:4px;text-decoration:none;font-family:sans-serif;vertical-align:middle;line-height:1.6;";
 
 function searchUrl(q) {
   return `https://www.google.com/search?q=${encodeURIComponent(q)}`;
@@ -168,11 +169,11 @@ function searchUrl(q) {
 function buildButtons(title, source) {
   const short  = title.slice(0, 80).trimEnd();
   const domain = SOURCE_DOMAINS[source.toLowerCase().trim()];
-  const q1 = domain ? `"${short}" site:${domain}` : `"${short}" ${source}`;
-  // Alternativa: sem aspas, sem exclusão — busca ampla pelo mesmo fato
-  const q2 = title.slice(0, 80).trimEnd();
-  return `&nbsp;<a href="${searchUrl(q1)}" target="_blank" rel="noopener" style="${STYLE_PRIMARY}">🔗 Acessar</a>`
-       + `&nbsp;<a href="${searchUrl(q2)}" target="_blank" rel="noopener" style="${STYLE_ALT}">🌐 Alternativa</a>`;
+  const q1      = domain ? `"${short}" site:${domain}` : `"${short}" ${source}`;
+  const related = title.slice(0, 80).trimEnd();
+  // web app has no DDG resolver — primary always shows site-specific search
+  return `&nbsp;<a href="${searchUrl(q1)}" target="_blank" rel="noopener" style="${STYLE_SEARCH}">🔍 Quick Search</a>`
+       + `&nbsp;<a href="${searchUrl(related)}" target="_blank" rel="noopener" style="${STYLE_RELATED}">🌐 Related</a>`;
 }
 
 function processHtml(html) {
